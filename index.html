@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mikephie 图标上传</title>
+
+      <!-- iOS 添加到主屏幕支持 -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/ios/180.png?v=2">
+  <link rel="icon" href="icons/ios/favicon.ico" sizes="any">
+  <meta name="theme-color" content="#0b1620">
+
+  <script>
+    const PAGE_VER = '20250823b-rename';   // ← 每次更新改这个
+    const k = 'APP_PAGE_VER';
+    if (localStorage.getItem(k) !== PAGE_VER) {
+      localStorage.setItem(k, PAGE_VER);
+      const url = new URL(location.href);
+      url.searchParams.set('v', PAGE_VER);
+      location.replace(url.toString());
+    }
+  </script>
+
+  <script>
+    window.API_URL       = "https://upload-url.mikephiemy.workers.dev/upload-url";
+    window.JSON_FILE_URL = "https://img.mikephie.site/icons.json";
+  </script>
+
+  <link id="main-css" rel="stylesheet" href="./assets/app.css?v=20250822-nodrag"
+        onerror="document.getElementById('fallback-css').disabled=false" />
+  <style id="fallback-css" disabled>
+    :root{--bg:#0a0a1a;--fg:#e8f4ff;--accent:#00ffff;--glass-border:rgba(255,255,255,0.2)}
+    *{box-sizing:border-box}
+    body{margin:0;background:linear-gradient(135deg,#0a0a1a,#1a1a3a 50%,#0a0a1a);color:#fff;
+      font:15px/1.6 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;padding:24px 16px 56px;min-height:100vh}
+    .container{width:min(1000px,92vw);margin:0 auto}
+  </style>
+  <script>
+    (function(){
+      const link=document.getElementById('main-css'),fallback=document.getElementById('fallback-css');
+      let ok=false; link?.addEventListener('load',()=>ok=true); link?.addEventListener('error',()=>fallback.disabled=false);
+      setTimeout(()=>{ if(!ok) fallback.disabled=false; },1500);
+    })();
+  </script>
+</head>
+<body>
+  <div class="container">
+    <h1>🚀 Mikephie 图标上传</h1>
+    <p class="subtitle">选择文件 + 自动处理上传 · 自动生成 <code>icons.json</code></p>
+
+    <section class="card options-card">
+      <div class="opt-row">
+        <div class="group">
+          <div class="group-title">上传模式</div>
+          <label><input type="radio" name="mode" value="original" checked> 原样</label>
+          <label><input type="radio" name="mode" value="square"> 正方形</label>
+          <label><input type="radio" name="mode" value="scale"> 等比缩放</label>
+        </div>
+
+        <div class="group">
+          <label class="inline"><span>尺寸(px)</span>
+            <input id="optSize" type="number" min="64" step="16" value="500" />
+          </label>
+          <label class="inline"><input id="optAdjustCorners" type="checkbox" checked><span>圆角</span></label>
+          <label class="inline"><span>半径(px)</span>
+            <input id="cornerRadius" type="number" min="0" max="200" value="20" />
+          </label>
+          <label class="inline grow"><span>派生后缀</span>
+            <input id="optSuffix" type="text" placeholder="" />
+          </label>
+        </div>
+
+        <div class="group">
+          <label class="inline"><input id="optAlsoOriginal" type="checkbox"><span>同时上传原图</span></label>
+          <label class="inline"><input id="optOverwrite" type="checkbox" checked><span>允许覆盖</span></label>
+          <label class="inline grow"><span>保存目录</span>
+  <select id="optDir">
+    <option value="TV_logo" selected>TV_logo</option>
+    <option value="APP_logo">APP_logo</option>
+  </select>
+</label>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="rename-row">
+        <label class="inline grow">
+          <span>命名方式：</span>
+          <select id="renameMode">
+            <option value="original">保留原文件名</option>
+            <option value="prefix">前缀 + 原文件名</option>
+            <option value="custom">完全自定义（支持 %i 序号；可含扩展名）</option>
+          </select>
+        </label>
+        <label class="inline grow">
+          <span class="hide-on-narrow">规则/前缀</span>
+          <input id="renameValue" placeholder="icons/ 或 avatar-%i 或 new.webp / new（自动补扩展名）" type="text" />
+        </label>
+        <label class="inline"><input checked id="overwrite" type="checkbox" />
+          <span>允许覆盖同名文件</span>
+        </label>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="file-list" id="fileList"></div>
+    </section>
+
+    <section class="card actions-row">
+      <button id="browseBtn" class="btn">📂 选择文件</button>
+      <input id="fileInput" type="file" multiple style="display:none" />
+      <button id="uploadBtn" class="btn">⬆ 上传文件（自动处理）</button>
+      <div id="result" class="action-result"></div>
+    </section>
+
+    <section class="card">
+      <div class="list-head">
+        <h3>📚 已有图片</h3>
+        <div class="btns">
+          <button id="copyJsonLinkBtn">JSON</button>
+          <button id="refreshExisting">刷新</button>
+        </div>
+      </div>
+
+      <div class="ex-toolbar">
+        <input id="exSearch" placeholder="🔎 搜索文件名（模糊）" type="text" />
+        <select id="exPrefix">
+  <option value="">all</option>
+  <option value="TV_logo/">TV_logo</option>
+  <option value="APP_logo/">APP_logo</option>
+</select>
+        <button id="exClear" type="button">清除</button>
+      </div>
+
+      <div class="files" id="existingList"></div>
+    </section>
+  </div>
+
+  <script src="./assets/app.js?v=20250823-renamegpt14" defer></script>
+  <script src="./assets/rename-overlay.js?v=20250813c" defer></script>
+</body>
+</html>
