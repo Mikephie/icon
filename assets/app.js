@@ -241,7 +241,7 @@ async function fetchBlobSmart(oldKey, url){
   try { const r = await fetch(url, { cache: "no-store", mode: "cors" }); if (r.ok) return await r.blob(); } catch (_){}
   const tries = [
     u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
-    u => `https://r2-api-icon.mikephie.com/${encodeURIComponent(u)}`
+    u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`
   ];
   for (const build of tries){
     try { const r = await fetch(build(url), { cache: "no-store" }); if (r.ok) return await r.blob(); } catch (_){}
@@ -489,69 +489,13 @@ async function uploadFiles(){
 }
 $("#uploadBtn")?.addEventListener("click", uploadFiles);
 
-/**
- * 尝试多路获取 JSON：
- * 1) 直接 fetch(url)
- * 2) 如果 window.JSON_FILE_URL 可用且不同于 url，则尝试用它（通常指向你的 Worker）
- * 3) 最后兜底使用第三方代理（只做最后手段）
- *
- * 任何一次成功都会返回解析后的对象；全部失败则抛错。
- */
-async function fetchJsonWithFallback(url) {
-  // 1) 直接请求（首选，同源或已经有 CORS 的 URL）
-  try {
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) throw new Error("Direct fetch HTTP " + res.status);
-    // 只调用一次 .json()
-    return await res.json();
-  } catch (err) {
-    console.warn('fetchJsonWithFallback: direct fetch failed:', err && err.message ? err.message : err);
-  }
-
-  // 2) 尝试 window.JSON_FILE_URL（通常指向你部署的 Worker / 自己的代理）
-  try {
-    const workerUrl = (typeof window !== 'undefined' && window.JSON_FILE_URL) ? window.JSON_FILE_URL.trim() : null;
-    if (workerUrl && workerUrl !== url) {
-      const res2 = await fetch(workerUrl, { cache: "no-store" });
-      if (!res2.ok) throw new Error("Worker fetch HTTP " + res2.status);
-      return await res2.json();
-    }
-  } catch (err) {
-    console.warn('fetchJsonWithFallback: worker fetch failed:', err && err.message ? err.message : err);
-  }
-
-  // 3) 兜底：使用外部 CORS 代理（最后手段）
-  //    注意：不同代理返回的格式可能不同，先读取为 text，再稳妥解析
-  try {
-    const proxy = `https://corsproxy.io/?${encodeURIComponent(url)}`;
-    const pres = await fetch(proxy, { cache: "no-store" });
-    if (!pres.ok) throw new Error("Proxy HTTP " + pres.status);
-
-    // 只读取一次 body（text），然后根据内容解析
-    const txt = await pres.text();
-
-    // 直接 JSON 文本
-    try {
-      return JSON.parse(txt);
-    } catch (errParse) {
-      // 有些代理会返回 { contents: "..." } 的包装格式
-      try {
-        const wrapper = JSON.parse(txt);
-        if (wrapper && typeof wrapper.contents === "string") {
-          return JSON.parse(wrapper.contents);
-        } else {
-          throw new Error('Proxy returned unexpected wrapper');
-        }
-      } catch (errWrap) {
-        throw new Error('Failed to parse proxy response: ' + (errWrap && errWrap.message ? errWrap.message : errWrap));
-      }
-    }
-  } catch (err) {
-    console.warn('fetchJsonWithFallback: proxy fetch failed:', err && err.message ? err.message : err);
-    throw new Error('All fetch attempts failed: ' + (err && err.message ? err.message : err));
-  }
+/* ====== 已有清单/渲染/删除/复制/重命名 ====== */
+async function fetchJsonWithFallback(url){
+  try{ const r=await fetch(url,{cache:"no-store"}); if(!r.ok) throw new Error("HTTP "+r.status); return await r.json(); }catch(_){}
+  try{ const u=`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`; const r=await fetch(u,{cache:"no-store"}); if(!r.ok) throw new Error(); const j=await r.json(); return JSON.parse(j.contents); }catch(_){}
+  const u2=`https://corsproxy.io/?${encodeURIComponent(url)}`; const r2=await fetch(u2,{cache:"no-store"}); if(!r2.ok) throw new Error("All fallbacks failed"); const txt=await r2.text();
+  try{ return JSON.parse(txt); } catch{ return JSON.parse((await r2.json()).contents); }
 }
-
 
 /* ====== 单实例保护 & 紧急关闭 ====== */
 window.forceCloseModals = function(){
