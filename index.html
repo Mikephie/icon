@@ -5,12 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Mikephie 图标上传</title>
 
-      <!-- iOS 添加到主屏幕支持 -->
-  <link rel="manifest" href="manifest.json">
-  <link rel="apple-touch-icon" href="icons/ios/180.png?v=2">
-  <link rel="icon" href="icons/ios/favicon.ico" sizes="any">
-  <meta name="theme-color" content="#0b1620">
-
+  <!-- 自动防旧版：每次改 PAGE_VER 都会强制刷新一次 -->
   <script>
     const PAGE_VER = '20250823b-rename';   // ← 每次更新改这个
     const k = 'APP_PAGE_VER';
@@ -50,6 +45,7 @@
     <h1>🚀 Mikephie 图标上传</h1>
     <p class="subtitle">选择文件 + 自动处理上传 · 自动生成 <code>icons.json</code></p>
 
+    <!-- A. 合并的选项卡 -->
     <section class="card options-card">
       <div class="opt-row">
         <div class="group">
@@ -92,7 +88,7 @@
           <select id="renameMode">
             <option value="original">保留原文件名</option>
             <option value="prefix">前缀 + 原文件名</option>
-            <option value="custom" selected>完全自定义</option>
+            <option value="custom" selected>完全自定义名</option>
           </select>
         </label>
         <label class="inline grow">
@@ -105,10 +101,12 @@
       </div>
     </section>
 
+    <!-- B. 预览区 -->
     <section class="card">
       <div class="file-list" id="fileList"></div>
     </section>
 
+    <!-- C. 操作行 -->
     <section class="card actions-row">
       <button id="browseBtn" class="btn">📂 选择文件</button>
       <input id="fileInput" type="file" multiple style="display:none" />
@@ -116,6 +114,7 @@
       <div id="result" class="action-result"></div>
     </section>
 
+    <!-- D. 已有图片 -->
     <section class="card">
       <div class="list-head">
         <h3>📚 已有图片</h3>
@@ -139,6 +138,7 @@
     </section>
   </div>
 
+  <!-- 使用新的 app.js 版本号 -->
   <script src="./assets/app.js?v=20250823-renamegpt14" defer></script>
   <script src="./assets/rename-overlay.js?v=20250813c" defer></script>
 </body>
