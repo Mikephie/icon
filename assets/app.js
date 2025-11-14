@@ -31,6 +31,18 @@ function keyFromItem(it){
   return "";
 }
 
+// HTML 转义（用于将任意文件名/URL 安全注入到 innerHTML）
+function escapeHtml(str){
+  if (str === null || str === undefined) return '';
+  const s = String(str);
+  // 只替换必要的字符，保持性能
+  return s.replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+}
+
 
 /* === Feedback utils (haptic / audio / ring) === */
 async function tryHaptic(ms=10){
