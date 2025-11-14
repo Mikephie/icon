@@ -26,8 +26,6 @@
     window.API_URL       = "https://api-icon.mikephie.com/";
     window.UPLOAD_API    = "https://api-icon.mikephie.com/";
     window.JSON_FILE_URL = "https://r2-api-icon.mikephie.com/icons.json";
-    // 新增：缩略图服务 base（如果你有 Worker 支持 /thumb/<key> 路径则填此项）
-    window.THUMB_BASE = "https://icon.mikephie.com/thumb";
   </script>
 
   <link id="main-css" rel="stylesheet" href="./assets/app.css?v=20250822-nodrag"
@@ -46,84 +44,6 @@
       setTimeout(()=>{ if(!ok) fallback.disabled=false; },1500);
     })();
   </script>
-
-  <!-- 覆盖样式：解决卡片乱、图片拉伸、按钮覆盖等问题 -->
-  <style>
-  /* ===== 覆盖：修复卡片 / 图片 / 操作按钮 布局 ===== */
-  .ex-list-wrap { width:100%; }
-  .thumb-grid{
-    display:grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap:16px;
-    align-items:start;
-  }
-  .thumb-card{
-    display:flex;
-    flex-direction:column;
-    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.03));
-    border-radius:12px;
-    padding:10px;
-    min-height:220px;
-    max-height:260px;
-    box-shadow: 0 6px 18px rgba(2,6,23,0.35);
-    overflow: hidden;
-    position: relative;
-  }
-  .thumb-img-wrap{
-    width:100%;
-    height:140px;
-    border-radius:10px;
-    overflow:hidden;
-    background: linear-gradient(180deg,#071024,#061025);
-    display:flex;
-    align-items:center;
-    justify-content:center;
-  }
-  .thumb-img-wrap img{
-    width:100%;
-    height:100%;
-    object-fit:cover;
-    display:block;
-  }
-  .thumb-meta{
-    margin-top:10px;
-    font-size:13px;
-    color:#dfefff;
-    line-height:1.2;
-    flex: 0 0 auto;
-    text-overflow: ellipsis;
-    overflow:hidden;
-    white-space: nowrap;
-  }
-  .thumb-actions{
-    margin-top:auto; /* push to bottom */
-    display:flex;
-    gap:8px;
-    justify-content:flex-start;
-    align-items:center;
-    padding-top:8px;
-  }
-  .thumb-actions .btn{
-    flex: 0 0 auto;
-    padding:6px 8px;
-    border-radius:8px;
-    background:linear-gradient(90deg,#00f0ff,#00b1ff);
-    color:#002;
-    font-weight:600;
-    border:none;
-    cursor:pointer;
-    box-shadow: 0 6px 16px rgba(0,160,200,0.12);
-  }
-  .ex-item-placeholder{
-    padding:18px;color:#9aa;background:transparent;border-radius:8px;
-  }
-  @media (max-width:480px){
-    .thumb-grid{ grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap:10px; }
-    .thumb-card{ min-height:160px; max-height:220px; }
-    .thumb-img-wrap{ height:100px; }
-  }
-  </style>
-
 </head>
 <body>
   <div class="container">
