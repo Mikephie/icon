@@ -1,16 +1,34 @@
-// thumb.js
+// thumb.js (最终版本 - 包含边缘缓存和 Cache-Tag)
 // 说明：需要在 Worker Bindings 中添加：
-//  - R2 binding 名称: R2_BUCKET (绑定到你的 R2 bucket，例如 "images")
-//  - Images binding 名称: IMAGE    (启用 Cloudflare Images API for Workers)
-// 部署后在 DNS/Routes 上将 icon.mikephie.com/thumb* 指向此 Worker（域名需被 Cloudflare 代理）
+//  - R2 binding 名称: R2_BUCKET
+//  - Images binding 名称: IMAGE
+// 部署后在 DNS/Routes 上将 icon.mikephie.com/thumb* 指向此 Worker
 
 export default {
-  async fetch(request, env) {
+  /**
+   * @param {Request} request
+   * @param {object} env
+   * @param {object} context
+   */
+  async fetch(request, env, context) {
     try {
+      // 1. [优化] 检查边缘缓存
+      const cache = caches.default;
+      let response = await cache.match(request);
+      
+      if (response) {
+        // 缓存命中，直接返回
+        // console.log('Cache HIT');
+        return response;
+      }
+      // console.log('Cache MISS');
+
+
+      // --- 缓存未命中，执行原始逻辑 ---
       const url = new URL(request.url);
       const params = url.searchParams;
 
-      // 必填：file（R2 key），例如 "TV_logo/1024x1024bb.png"
+      // 必填：file（R2 key）
       const file = params.get('file');
       if (!file) return new Response('Missing file param', { status: 400 });
 
@@ -28,17 +46,14 @@ export default {
       const original = await obj.arrayBuffer();
 
       // 使用 Cloudflare Images API (Worker内置) 进行缩放
-      // 必须在 Worker Bindings 中启用 IMAGE binding
       const resizeOptions = {
         width: w,
         height: h,
-        fit,                // 'cover' 推荐用于图标（等比裁剪填满）
-        quality,            // 质量
-        // format: fmt === 'auto' ? 'webp' : fmt, // auto -> webp as default
+        fit,
+        quality,
         format: fmt === 'auto' ? 'webp' : fmt
       };
 
-      // env.IMAGE.resize 会返回 ArrayBuffer 或 Uint8Array
       const resized = await env.IMAGE.resize(original, resizeOptions);
 
       // 根据输出格式决定 Content-Type
@@ -46,16 +61,30 @@ export default {
       if (resizeOptions.format === 'jpeg' || resizeOptions.format === 'jpg') contentType = 'image/jpeg';
       if (resizeOptions.format === 'png') contentType = 'image/png';
       if (resizeOptions.format === 'webp') contentType = 'image/webp';
-
-      // 返回结果并带上缓存与 CORS
+      
+      // 准备响应头
       const headers = new Headers({
         'Content-Type': contentType,
-        'Cache-Control': 'public, max-age=86400, stale-while-revalidate=3600', // 缓存 1 天
-        'Access-Control-Allow-Origin': '*', // 如需更严格请改成你的域名
+        // 浏览器缓存 1 天, 后台刷新 1 小时
+        'Cache-Control': 'public, max-age=86400, stale-while-revalidate=3600', 
+        'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS'
       });
 
-      return new Response(resized, { status: 200, headers });
+      // 2. [优化] 添加 Cache-Tag 以便后续清除
+      // 我们使用 R2 的 file key 作为标签，并替换掉无效字符
+      const cacheTag = 'r2-file::' + file.replace(/[^a-zA-Z0-9_\-.:]/g, '_');
+      headers.set('Cache-Tag', cacheTag);
+
+      // 3. 构造新响应
+      response = new Response(resized, { status: 200, headers });
+
+      // 4. [优化] 将响应存入边缘缓存（异步执行，不阻塞返回）
+      context.waitUntil(cache.put(request, response.clone()));
+
+      // 5. 返回响应
+      return response;
+
     } catch (err) {
       // 任何错误也返回 CORS header，方便前端调试
       return new Response('Error: ' + (err && err.message ? err.message : String(err)), {
@@ -66,6 +95,10 @@ export default {
   }
 };
 
+/**
+ * 辅助函数：返回 CORS 头部
+ * @returns {Headers}
+ */
 function corsHeaders() {
   const h = new Headers();
   h.set('Access-Control-Allow-Origin', '*');

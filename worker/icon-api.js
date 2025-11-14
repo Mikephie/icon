@@ -6,7 +6,7 @@ export default {
     /* ====== 配置 ====== */
     const BUCKET     = env.IMAGES;                         // R2 Bucket
     const ICONS_KEY  = "icons.json";
-    const PUBLIC_BASE= "https://icon.mikephie.com";
+    const PUBLIC_BASE= "https://images.mikephie.com";
     const ALLOW_EXT  = [".png",".jpg",".jpeg",".gif",".webp",".svg",".ico",".bmp"];
 
     /* ====== CORS ====== */
