@@ -1,84 +1,225 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Mikephie 图标上传</title>
 
-  <!--
-    配置区（请按需替换下面三个 URL）：
-      - API_URL: 用于执行删除/重命名/其它管理操作的 Worker 或 API（必须支持 CORS）
-      - UPLOAD_API: 用于文件上传的 endpoint（POST multipart/form-data）
-      - JSON_FILE_URL: icons.json 的可被浏览器访问的 URL（优先用你的 Worker 提供）
-      - THUMB_BASE: 缩略图 Worker 的 base URL（不带尾部斜杠）
-    例：
-      window.API_URL = "https://api-icon.mikephie.com/";
-      window.UPLOAD_API = "https://api-icon.mikephie.com/upload";
-      window.JSON_FILE_URL = "https://r2-api-icon.mikephie.com/icons.json";
-      window.THUMB_BASE = "https://icon.mikephie.com/thumb";
-  -->
+      <!-- iOS 添加到主屏幕支持 -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/ios/180.png?v=2">
+  <link rel="icon" href="icons/ios/favicon.ico" sizes="any">
+  <meta name="theme-color" content="#0b1620">
+
   <script>
-    window.API_URL = "https://api-icon.mikephie.com/";        // 管理 API
-    window.UPLOAD_API = "https://api-icon.mikephie.com/upload"; // 上传 API
-    window.JSON_FILE_URL = "https://r2-api-icon.mikephie.com/icons.json"; // icons.json
-    window.THUMB_BASE = "https://icon.mikephie.com/thumb";     // 缩略图服务 base (无尾斜杠)
+    const PAGE_VER = '20250823b-rename';   // ← 每次更新改这个
+    const k = 'APP_PAGE_VER';
+    if (localStorage.getItem(k) !== PAGE_VER) {
+      localStorage.setItem(k, PAGE_VER);
+      const url = new URL(location.href);
+      url.searchParams.set('v', PAGE_VER);
+      location.replace(url.toString());
+    }
   </script>
 
-  <link rel="stylesheet" href="./assets/app.css?v=20250822-nodrag" />
-  <style>
-    /* 简单内置样式，若你已有 CSS 可忽略 */
-    :root{--bg:#0b1220;--card:#0f1724;--accent:#0ee7ff;--muted:#98a1b2}
-    body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial; background:var(--bg);color:#e6eef8}
-    .container{max-width:1100px;margin:24px auto;padding:18px}
-    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.015));border-radius:12px;padding:14px;margin-bottom:16px;box-shadow:0 6px 18px rgba(2,6,23,0.6)}
-    .btn{background:var(--accent);border:none;padding:8px 12px;border-radius:8px;color:#001;cursor:pointer;margin-right:8px}
-    .file-list{display:flex;gap:8px;flex-wrap:wrap}
-    .thumb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
-    .thumb-card{background:#071024;padding:8px;border-radius:10px;display:flex;flex-direction:column;align-items:center}
-    .thumb-img-wrap{width:100%;height:140px;display:flex;align-items:center;justify-content:center;overflow:hidden;border-radius:8px;background:linear-gradient(180deg,#091223,#061025)}
-    .thumb-img-wrap img{width:100%;height:100%;object-fit:cover}
-    .thumb-meta{margin-top:8px;font-size:13px;color:var(--muted);text-align:center;word-break:break-all}
-    .ex-item{display:flex;align-items:center;gap:12px;padding:8px;border-bottom:1px solid rgba(255,255,255,0.02)}
-    .ex-image-area img{width:72px;height:72px;object-fit:cover;border-radius:10px}
-    .ex-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .ex-actions button{background:transparent;border:1px solid rgba(255,255,255,0.03);padding:6px;border-radius:6px;color:#cfe}
+  <script>
+    window.API_URL       = "https://api-icon.mikephie.com/";
+    window.UPLOAD_API    = "https://api-icon.mikephie.com/";
+    window.JSON_FILE_URL = "https://r2-api-icon.mikephie.com/icons.json";
+    // 新增：缩略图服务 base（如果你有 Worker 支持 /thumb/<key> 路径则填此项）
+    window.THUMB_BASE = "https://icon.mikephie.com/thumb";
+  </script>
+
+  <link id="main-css" rel="stylesheet" href="./assets/app.css?v=20250822-nodrag"
+        onerror="document.getElementById('fallback-css').disabled=false" />
+  <style id="fallback-css" disabled>
+    :root{--bg:#0a0a1a;--fg:#e8f4ff;--accent:#00ffff;--glass-border:rgba(255,255,255,0.2)}
+    *{box-sizing:border-box}
+    body{margin:0;background:linear-gradient(135deg,#0a0a1a,#1a1a3a 50%,#0a0a1a);color:#fff;
+      font:15px/1.6 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;padding:24px 16px 56px;min-height:100vh}
+    .container{width:min(1000px,92vw);margin:0 auto}
   </style>
+  <script>
+    (function(){
+      const link=document.getElementById('main-css'),fallback=document.getElementById('fallback-css');
+      let ok=false; link?.addEventListener('load',()=>ok=true); link?.addEventListener('error',()=>fallback.disabled=false);
+      setTimeout(()=>{ if(!ok) fallback.disabled=false; },1500);
+    })();
+  </script>
+
+  <!-- 覆盖样式：解决卡片乱、图片拉伸、按钮覆盖等问题 -->
+  <style>
+  /* ===== 覆盖：修复卡片 / 图片 / 操作按钮 布局 ===== */
+  .ex-list-wrap { width:100%; }
+  .thumb-grid{
+    display:grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap:16px;
+    align-items:start;
+  }
+  .thumb-card{
+    display:flex;
+    flex-direction:column;
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.03));
+    border-radius:12px;
+    padding:10px;
+    min-height:220px;
+    max-height:260px;
+    box-shadow: 0 6px 18px rgba(2,6,23,0.35);
+    overflow: hidden;
+    position: relative;
+  }
+  .thumb-img-wrap{
+    width:100%;
+    height:140px;
+    border-radius:10px;
+    overflow:hidden;
+    background: linear-gradient(180deg,#071024,#061025);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .thumb-img-wrap img{
+    width:100%;
+    height:100%;
+    object-fit:cover;
+    display:block;
+  }
+  .thumb-meta{
+    margin-top:10px;
+    font-size:13px;
+    color:#dfefff;
+    line-height:1.2;
+    flex: 0 0 auto;
+    text-overflow: ellipsis;
+    overflow:hidden;
+    white-space: nowrap;
+  }
+  .thumb-actions{
+    margin-top:auto; /* push to bottom */
+    display:flex;
+    gap:8px;
+    justify-content:flex-start;
+    align-items:center;
+    padding-top:8px;
+  }
+  .thumb-actions .btn{
+    flex: 0 0 auto;
+    padding:6px 8px;
+    border-radius:8px;
+    background:linear-gradient(90deg,#00f0ff,#00b1ff);
+    color:#002;
+    font-weight:600;
+    border:none;
+    cursor:pointer;
+    box-shadow: 0 6px 16px rgba(0,160,200,0.12);
+  }
+  .ex-item-placeholder{
+    padding:18px;color:#9aa;background:transparent;border-radius:8px;
+  }
+  @media (max-width:480px){
+    .thumb-grid{ grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap:10px; }
+    .thumb-card{ min-height:160px; max-height:220px; }
+    .thumb-img-wrap{ height:100px; }
+  }
+  </style>
+
 </head>
 <body>
   <div class="container">
-    <h1>🚀 Mikephie 图标上传与管理</h1>
+    <h1>🚀 Mikephie 图标上传</h1>
+    <p class="subtitle">选择文件 + 自动处理上传 · 自动生成 <code>icons.json</code></p>
 
-    <section class="card">
-      <div style="display:flex;gap:12px;align-items:center">
-        <button id="browseBtn" class="btn">📂 选择文件</button>
-        <input id="fileInput" type="file" multiple style="display:none">
-        <button id="uploadBtn" class="btn">⬆ 上传</button>
-        <div id="result" style="margin-left:8px;color:#9fd">等待操作</div>
+    <section class="card options-card">
+      <div class="opt-row">
+        <div class="group">
+          <div class="group-title">上传模式</div>
+          <label><input type="radio" name="mode" value="original" checked> 原样</label>
+          <label><input type="radio" name="mode" value="square"> 正方形</label>
+          <label><input type="radio" name="mode" value="scale"> 等比缩放</label>
+        </div>
+
+        <div class="group">
+          <label class="inline"><span>尺寸(px)</span>
+            <input id="optSize" type="number" min="64" step="16" value="500" />
+          </label>
+          <label class="inline"><input id="optAdjustCorners" type="checkbox" checked><span>圆角</span></label>
+          <label class="inline"><span>半径(px)</span>
+            <input id="cornerRadius" type="number" min="0" max="200" value="100" />
+          </label>
+          <label class="inline grow"><span>派生后缀</span>
+            <input id="optSuffix" type="text" placeholder="" />
+          </label>
+        </div>
+
+        <div class="group">
+          <label class="inline"><input id="optAlsoOriginal" type="checkbox"><span>同时上传原图</span></label>
+          <label class="inline"><input id="optOverwrite" type="checkbox" checked><span>允许覆盖</span></label>
+          <label class="inline grow"><span>保存目录</span>
+  <select id="optDir">
+    <option value="TV_logo">TV_logo</option>
+    <option value="APP_logo" selected>APP_logo</option>
+  </select>
+</label>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="rename-row">
+        <label class="inline grow">
+          <span>命名方式：</span>
+          <select id="renameMode">
+            <option value="original">保留原文件名</option>
+            <option value="prefix">前缀 + 原文件名</option>
+            <option value="custom" selected>完全自定义</option>
+          </select>
+        </label>
+        <label class="inline grow">
+          <span class="hide-on-narrow">规则/前缀</span>
+          <input id="renameValue" placeholder="icons/ 或 avatar-%i 或 new.webp / new（自动补扩展名）" type="text" />
+        </label>
+        <label class="inline"><input checked id="overwrite" type="checkbox" />
+          <span>允许覆盖同名文件</span>
+        </label>
       </div>
     </section>
 
     <section class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center">
+      <div class="file-list" id="fileList"></div>
+    </section>
+
+    <section class="card actions-row">
+      <button id="browseBtn" class="btn">📂 选择文件</button>
+      <input id="fileInput" type="file" multiple style="display:none" />
+      <button id="uploadBtn" class="btn">⬆ 上传文件（自动处理）</button>
+      <div id="result" class="action-result"></div>
+    </section>
+
+    <section class="card">
+      <div class="list-head">
         <h3>📚 已有图片</h3>
-        <div>
-          <button id="copyJsonLinkBtn" class="btn">复制 icons.json 链接</button>
-          <button id="refreshExisting" class="btn">刷新</button>
+        <div class="btns">
+          <button id="copyJsonLinkBtn">JSON</button>
+          <button id="refreshExisting">刷新</button>
         </div>
       </div>
 
-      <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
-        <input id="exSearch" placeholder="搜索文件名" style="padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.03);background:transparent;color:#fff" />
-        <select id="exPrefix" style="padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.03);background:transparent;color:#fff">
-          <option value="">全部</option>
-          <option value="APP_logo/">APP_logo/</option>
-          <option value="TV_logo/">TV_logo/</option>
-        </select>
+      <div class="ex-toolbar">
+        <input id="exSearch" placeholder="🔎 搜索文件名（模糊）" type="text" />
+        <select id="exPrefix">
+  <option value="">all</option>
+  <option value="TV_logo/">TV_logo</option>
+  <option value="APP_logo/">APP_logo</option>
+</select>
+        <button id="exClear" type="button">清除</button>
       </div>
 
-      <div id="existingList" style="margin-top:16px"></div>
+      <div class="files" id="existingList"></div>
     </section>
   </div>
 
   <script src="./assets/app.js?v=20250823-renamegpt14" defer></script>
+  <script src="./assets/rename-overlay.js?v=20250813c" defer></script>
 </body>
 </html>
