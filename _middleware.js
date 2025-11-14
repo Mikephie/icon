@@ -1,4 +1,4 @@
-// 文件名: _middleware.js (请确保您的脚本内容是这个)
+// 文件名: _middleware.js
 
 export async function onRequest(context) {
   const { request, env, next } = context;
@@ -19,7 +19,7 @@ export async function onRequest(context) {
     return new Response("Not Found", { status: 404 });
   }
 
-  // 4. 执行从 R2 获取图片的逻辑
+  // 4. 执行从 R2 获取图片的逻辑 (变量名 IMAGES 已确认)
   let object = await env.IMAGES.get(key);
 
   // Fallback 逻辑
