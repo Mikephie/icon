@@ -1,4 +1,4 @@
-// 文件名: _middleware.js (放在您项目代码的根目录)
+// 文件名: _middleware.js (请确保您的脚本内容是这个)
 
 export async function onRequest(context) {
   const { request, env, next } = context;
@@ -12,20 +12,19 @@ export async function onRequest(context) {
     return response;
   }
 
-  // 3. 如果是 404 (文件未找到)，我们假定它是一个图片请求
+  // 3. 如果是 404 (文件未找到)，我们才假定它是一个图片请求
   const key = decodeURIComponent(url.pathname.slice(1));
 
   if (!key || key === "favicon.ico") {
     return new Response("Not Found", { status: 404 });
   }
 
-  // 4. [已修正] 执行从 R2 获取图片的逻辑
-  //    使用您脚本中确认的 "IMAGES" 变量
-  let object = await env.IMAGES.get(key); // 
+  // 4. 执行从 R2 获取图片的逻辑
+  let object = await env.IMAGES.get(key);
 
   // Fallback 逻辑
   if (!object) {
-    object = await env.IMAGES.get("not-found.png"); // 
+    object = await env.IMAGES.get("not-found.png"); 
     if (!object) {
       return new Response("File not found in R2", { status: 404 });
     }
