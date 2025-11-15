@@ -1,17 +1,10 @@
-// R2 图标管理 Worker (最终版 - 包含缓存清除 和 增量JSON更新)
-//
-// ⚠️ 部署此 Worker 前，请务必在 "设置" -> "变量" 中添加:
-//   - IMAGES:                绑定到您的 R2 Bucket (例如 "images")
-//   - CLOUDFLARE_ZONE_ID:    您的 Cloudflare 区域 ID (环境变量)
-//   - CLOUDFLARE_API_TOKEN:  您创建的 "Cache Purge" API 令牌 (秘密变量)
-//
 export default {
-  async fetch(request, env, context) {
+  async fetch(request, env) {
     const url = new URL(request.url);
     const method = request.method.toUpperCase();
 
     /* ====== 配置 ====== */
-    const BUCKET     = env.IMAGES;
+    const BUCKET     = env.IMAGES;                         // R2 Bucket
     const ICONS_KEY  = "icons.json";
     const PUBLIC_BASE= "https://images.mikephie.com";
     const ALLOW_EXT  = [".png",".jpg",".jpeg",".gif",".webp",".svg",".ico",".bmp"];
@@ -36,6 +29,7 @@ export default {
       k = k.replace(/\/{2,}/g, "/");
       return k;
     }
+    // 把传入的 key/URL 统一还原成 R2 里的“中文真实 key”
     function materializeKey(input){
       if (!input) return "";
       let raw = String(input).trim();
@@ -56,8 +50,6 @@ export default {
       } while (cursor);
       return out;
     }
-
-    // [全量重建] - 仅用于 'refresh-icons'
     async function rebuildIcons(){
       const all = await listAllObjects("");
       const imgs = all.filter(o => isImageKey(o.key));
@@ -65,8 +57,6 @@ export default {
       icons.sort((a,b)=>a.name.localeCompare(b.name));
       return icons;
     }
-
-    // [保存JSON] - 内部函数
     async function saveIconsJson(icons){
       const payload = { title:"Mikephie图标订阅", desc:"收集一些自己脚本用到的图标", updatedAt:new Date().toISOString(), count:icons.length, icons };
       await BUCKET.put(ICONS_KEY, JSON.stringify(payload, null, 2), {
@@ -74,86 +64,6 @@ export default {
       });
       return payload;
     }
-
-    // [优化] [新增] 增量更新 icons.json
-    async function updateIconsJson({ removeKey, addKey }) {
-      let payload;
-      const obj = await BUCKET.get(ICONS_KEY);
-      if (obj) {
-        payload = await obj.json().catch(() => null);
-      }
-
-      // 如果文件不存在或损坏，则回退到全量重建
-      if (!payload || !payload.icons) {
-        console.log('icons.json not found or corrupt, starting full rebuild.');
-        return saveIconsJson(await rebuildIcons());
-      }
-
-      let icons = payload.icons;
-      let changed = false;
-
-      // 1. 处理删除
-      if (removeKey) {
-        const initialCount = icons.length;
-        icons = icons.filter(icon => icon.name !== removeKey);
-        if (icons.length !== initialCount) {
-          changed = true;
-        }
-      }
-
-      // 2. 处理添加（或覆盖）
-      if (addKey) {
-        // 先删除同名条目（确保唯一性）
-        const initialCount = icons.length;
-        icons = icons.filter(icon => icon.name !== addKey);
-        if (icons.length !== initialCount) {
-          changed = true;
-        }
-        
-        // 添加新条目
-        icons.push({ name: addKey, url: makePublicUrl(addKey) });
-        changed = true;
-      }
-
-      // 如果没有任何变更（例如：删除一个不存在的 key），则不执行写操作
-      if (!changed) {
-        return payload;
-      }
-
-      // 3. 排序并保存
-      icons.sort((a,b)=>a.name.localeCompare(b.name));
-      return saveIconsJson(icons);
-    }
-
-    // [缓存清除] - 内部函数
-    async function purgeCacheByTag(fileKey) {
-      const cacheTag = 'r2-file::' + fileKey.replace(/[^a-zA-Z0-9_\-.:]/g, '_');
-      const zoneId = env.CLOUDFLARE_ZONE_ID; 
-      const apiToken = env.CLOUDFLARE_API_TOKEN;
-
-      if (!zoneId || !apiToken) {
-        console.error('CLOUDFLARE_ZONE_ID or CLOUDFLARE_API_TOKEN is not set. Skipping cache purge.');
-        return;
-      }
-      
-      const purgeUrl = `https://api.cloudflare.com/client/v4/zones/${zoneId}/purge_cache`;
-      try {
-        const response = await fetch(purgeUrl, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${apiToken}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tags: [cacheTag] })
-        });
-        const data = await response.json();
-        if (!data.success) {
-          console.error(`Cache purge failed for tag [${cacheTag}]:`, data.errors);
-        } else {
-          console.log(`Cache purge successful for tag: [${cacheTag}]`);
-        }
-      } catch (err) {
-        console.error(`Error purging cache for tag [${cacheTag}]:`, err);
-      }
-    }
-
 
     /* ====== DELETE ====== */
     if (method === "DELETE") {
@@ -166,13 +76,7 @@ export default {
         if (!head) return jsonResponse({ ok:false, error:"File not found", key }, 404);
 
         await BUCKET.delete(key);
-        
-        // [缓存清除]
-        context.waitUntil(purgeCacheByTag(key));
-
-        // [优化] 使用增量更新
-        const saved = await updateIconsJson({ removeKey: key });
-        
+        const saved = await saveIconsJson(await rebuildIcons());
         return jsonResponse({ ok:true, deleted:key, remaining:saved.count });
       }catch(e){
         return jsonResponse({ ok:false, error:String(e?.message || e) }, 500);
@@ -189,13 +93,11 @@ export default {
           const form = await request.formData().catch(()=>null);
           const action = form?.get("action");
 
-          // [刷新] - 保持全量重建
           if (action === "refresh-icons") {
             const saved = await saveIconsJson(await rebuildIcons());
             return jsonResponse({ ok:true, refreshed:true, count:saved.count });
           }
 
-          // [重命名]
           if (action === "rename") {
             const oldKey = materializeKey(form?.get("oldKey"));
             const newKey = materializeKey(form?.get("key"));
@@ -211,12 +113,7 @@ export default {
             });
             await BUCKET.delete(oldKey);
 
-            // [缓存清除]
-            context.waitUntil(purgeCacheByTag(oldKey));
-            
-            // [优化] 使用增量更新 (删除旧的, 添加新的)
-            const saved = await updateIconsJson({ removeKey: oldKey, addKey: newKey });
-
+            const saved = await saveIconsJson(await rebuildIcons());
             return jsonResponse({ ok:true, renamed:{from:oldKey,to:newKey}, count:saved.count });
           }
 
@@ -246,13 +143,8 @@ export default {
         await BUCKET.put(reqKey, file.stream(), {
           httpMetadata: { contentType: file.type || "application/octet-stream" },
         });
-        
-        // [缓存清除] (用于覆盖或新上传)
-        context.waitUntil(purgeCacheByTag(reqKey));
 
-        // [优化] 使用增量更新
-        const saved = await updateIconsJson({ addKey: reqKey });
-
+        const saved = await saveIconsJson(await rebuildIcons());
         return jsonResponse({ ok:true, keyUsed:reqKey, url:makePublicUrl(reqKey), totalIcons:saved.count });
       }catch(e){
         return jsonResponse({ ok:false, error:String(e?.message || e) }, 500);

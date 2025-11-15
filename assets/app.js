@@ -1,4 +1,3 @@
-// assets/app.js 开始
 /* ====== 配置 ====== */
 // 静默复制 & 背景刷新：true=先复制, 刷新在后台；false=先刷新再复制
 window.COPY_STEALTH = false;
@@ -29,18 +28,6 @@ function keyFromItem(it){
     }
   }
   return "";
-}
-
-// HTML 转义（用于将任意文件名/URL 安全注入到 innerHTML）
-function escapeHtml(str){
-  if (str === null || str === undefined) return '';
-  const s = String(str);
-  // 只替换必要的字符，保持性能
-  return s.replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;')
-          .replace(/'/g, '&#39;');
 }
 
 
@@ -196,7 +183,7 @@ const stripExt = n => (n||"").replace(/\.[^.]+$/, "");
 const hasExt   = n => { const t=(n||"").trim(),i=t.lastIndexOf("."); return i>0 && i<t.length-1 && /^[a-z0-9]{1,5}$/i.test(t.slice(i+1)); };
 const ensureDir = d => d ? (d.endsWith("/") ? d : d + "/") : "";
 
-/* —— 定位“派生后缀”输入：兼容多DOM结构 —— */
+/* ---- 定位"派生后缀"输入：兼容多DOM结构 ---- */
 function getSuffixInput(){
   // 1) 直接 id
   let el = document.getElementById('optSuffix');
@@ -227,7 +214,7 @@ function mimeByExt(ext){
   return lookup[(ext||"").toLowerCase()] || "image/png"; 
 }
 
-// —— 统一获取上传模式：original | square | scale —— //
+// ---- 统一获取上传模式：original | square | scale ---- //
 function getUploadMode(){
   const r = document.querySelector('input[name="mode"]:checked')
         || document.querySelector('input[name^="mode"]:checked')
@@ -254,7 +241,7 @@ async function fetchBlobSmart(oldKey, url){
   try { const r = await fetch(url, { cache: "no-store", mode: "cors" }); if (r.ok) return await r.blob(); } catch (_){}
   const tries = [
     u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
-    u => `https://r2-api-icon.mikephie.com/${encodeURIComponent(u)}`
+    u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`
   ];
   for (const build of tries){
     try { const r = await fetch(build(url), { cache: "no-store" }); if (r.ok) return await r.blob(); } catch (_){}
@@ -502,69 +489,13 @@ async function uploadFiles(){
 }
 $("#uploadBtn")?.addEventListener("click", uploadFiles);
 
-/**
- * 尝试多路获取 JSON：
- * 1) 直接 fetch(url)
- * 2) 如果 window.JSON_FILE_URL 可用且不同于 url，则尝试用它（通常指向你的 Worker）
- * 3) 最后兜底使用第三方代理（只做最后手段）
- *
- * 任何一次成功都会返回解析后的对象；全部失败则抛错。
- */
-async function fetchJsonWithFallback(url) {
-  // 1) 直接请求（首选，同源或已经有 CORS 的 URL）
-  try {
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) throw new Error("Direct fetch HTTP " + res.status);
-    // 只调用一次 .json()
-    return await res.json();
-  } catch (err) {
-    console.warn('fetchJsonWithFallback: direct fetch failed:', err && err.message ? err.message : err);
-  }
-
-  // 2) 尝试 window.JSON_FILE_URL（通常指向你部署的 Worker / 自己的代理）
-  try {
-    const workerUrl = (typeof window !== 'undefined' && window.JSON_FILE_URL) ? window.JSON_FILE_URL.trim() : null;
-    if (workerUrl && workerUrl !== url) {
-      const res2 = await fetch(workerUrl, { cache: "no-store" });
-      if (!res2.ok) throw new Error("Worker fetch HTTP " + res2.status);
-      return await res2.json();
-    }
-  } catch (err) {
-    console.warn('fetchJsonWithFallback: worker fetch failed:', err && err.message ? err.message : err);
-  }
-
-  // 3) 兜底：使用外部 CORS 代理（最后手段）
-  //    注意：不同代理返回的格式可能不同，先读取为 text，再稳妥解析
-  try {
-    const proxy = `https://corsproxy.io/?${encodeURIComponent(url)}`;
-    const pres = await fetch(proxy, { cache: "no-store" });
-    if (!pres.ok) throw new Error("Proxy HTTP " + pres.status);
-
-    // 只读取一次 body（text），然后根据内容解析
-    const txt = await pres.text();
-
-    // 直接 JSON 文本
-    try {
-      return JSON.parse(txt);
-    } catch (errParse) {
-      // 有些代理会返回 { contents: "..." } 的包装格式
-      try {
-        const wrapper = JSON.parse(txt);
-        if (wrapper && typeof wrapper.contents === "string") {
-          return JSON.parse(wrapper.contents);
-        } else {
-          throw new Error('Proxy returned unexpected wrapper');
-        }
-      } catch (errWrap) {
-        throw new Error('Failed to parse proxy response: ' + (errWrap && errWrap.message ? errWrap.message : errWrap));
-      }
-    }
-  } catch (err) {
-    console.warn('fetchJsonWithFallback: proxy fetch failed:', err && err.message ? err.message : err);
-    throw new Error('All fetch attempts failed: ' + (err && err.message ? err.message : err));
-  }
+/* ====== 已有清单/渲染/删除/复制/重命名 ====== */
+async function fetchJsonWithFallback(url){
+  try{ const r=await fetch(url,{cache:"no-store"}); if(!r.ok) throw new Error("HTTP "+r.status); return await r.json(); }catch(_){}
+  try{ const u=`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`; const r=await fetch(u,{cache:"no-store"}); if(!r.ok) throw new Error(); const j=await r.json(); return JSON.parse(j.contents); }catch(_){}
+  const u2=`https://corsproxy.io/?${encodeURIComponent(url)}`; const r2=await fetch(u2,{cache:"no-store"}); if(!r2.ok) throw new Error("All fallbacks failed"); const txt=await r2.text();
+  try{ return JSON.parse(txt); } catch{ return JSON.parse((await r2.json()).contents); }
 }
-
 
 /* ====== 单实例保护 & 紧急关闭 ====== */
 window.forceCloseModals = function(){
@@ -575,7 +506,7 @@ function ensureSingleModal(selector){
   if (exist) exist.remove();
 }
 
-/* —— 玻璃风格重命名弹窗 —— */
+/* ---- 玻璃风格重命名弹窗 ---- */
 function showGlassRenameModal({oldKey, displayName}){
   return new Promise(resolve=>{
     ensureSingleModal('.glass-rename-wrap');
@@ -671,7 +602,7 @@ function showGlassRenameModal({oldKey, displayName}){
   });
 }
 
-/* —— 玻璃风格删除确认 —— */
+/* ---- 玻璃风格删除确认 ---- */
 function showGlassDeleteModal({fileKey, displayName}){
   return new Promise(resolve=>{
     ensureSingleModal('.glass-del-wrap');
@@ -702,7 +633,7 @@ function showGlassDeleteModal({fileKey, displayName}){
   });
 }
 
-/* —— 重命名（复制新 key -> 删除旧 key）—— */
+/* ---- 重命名（复制新 key -> 删除旧 key）---- */
 async function renameFile(oldKey, url, displayName){
   if (!oldKey || !oldKey.includes("/")) { const guess=deriveKeyFromUrl(url); if (guess) oldKey=guess; }
   const newKey = await showGlassRenameModal({ oldKey, displayName });
@@ -723,7 +654,7 @@ async function renameFile(oldKey, url, displayName){
   }
 }
 
-/* —— 删除 —— */
+/* ---- 删除 ---- */
 async function deleteFile(fileKey, btn, displayName){
   if (fileKey && !fileKey.includes("/") && btn) {
     try {
@@ -756,99 +687,42 @@ async function deleteFile(fileKey, btn, displayName){
 }
 window.deleteFile = deleteFile;
 
-/* ====== 列表渲染（已修改：加入缩略图优先逻辑 & 缩略图开关） ====== */
+/* ====== 列表渲染（底部透明图标按钮：📋 ✏️ 🗑️） ====== */
 let exAll = [], exFiltered = [];
-
-/*
-  修改说明:
-  - 本函数为你原有 renderList 的替换实现。
-  - 行为与原先一致，但增加了缩略图优先显示（支持 item.thumb|thumbnail|preview），
-    并在没有时构造 ?thumb=1&w=200 的 url 或使用 window.THUMB_BASE。
-  - 另外会根据 window.USE_THUMB (true/false) 开关决定是否启用缩略图逻辑。
-*/
 function renderList(list){
-  exAll = Array.isArray(list) ? list : [];
   const box = $("#existingList"); if(!box) return; box.innerHTML="";
   const frag=document.createDocumentFragment();
 
-  if (!exAll || exAll.length === 0) {
-    box.innerHTML = '<div class="ex-item-placeholder">暂无图片</div>';
-    return;
-  }
-
-  exAll.forEach(it=>{
+  list.forEach(it=>{
     const name = it.name || it.file || it.key || "";
     const url  = it.url  || it.href || "";
     const key  = keyFromItem({ name, key: it.key, path: it.path, url });
-
-    // 缩略图开关（默认启用）
-    const useThumb = (window.USE_THUMB === undefined) ? true : !!window.USE_THUMB;
-
-    // 构造 thumbnail URL 的逻辑（优先字段 -> url with query -> THUMB_BASE path）
-    let imgSrc = url || "";
-    if (useThumb) {
-      if (it.thumb) imgSrc = it.thumb;
-      else if (it.thumbnail) imgSrc = it.thumbnail;
-      else if (it.preview) imgSrc = it.preview;
-      else if (url) {
-        try {
-          const u = new URL(url, location.href);
-          if (!u.searchParams.get('thumb')) u.searchParams.set('thumb', '1');
-          if (!u.searchParams.get('w')) u.searchParams.set('w', '200');
-          imgSrc = u.toString();
-        } catch (e) {
-          imgSrc = url;
-        }
-      } else if (window.THUMB_BASE && key) {
-        const kEnc = encodeURIComponent(key).replace(/%2F/g, '/');
-        imgSrc = window.THUMB_BASE.replace(/\/$/,'') + '/' + kEnc + '?w=200&h=200&fit=cover&format=webp';
-      }
-    } else {
-      imgSrc = url || "";
-    }
 
     const div=document.createElement("div");
     div.className="ex-item";
 
     div.innerHTML=`
       <div class="ex-image-area">
-        <img loading="lazy" alt="${escapeHtml(name)}" src="${escapeHtml(imgSrc)}">
+        <img loading="lazy" alt="${name}" src="${url}">
       </div>
-      <div class="ex-name" title="${escapeHtml(it.path || name)}">${escapeHtml(name)}</div>
+      <div class="ex-name" title="${it.path || name}">${name}</div>
       <div class="ex-actions circle-actions">
-        <button class="copy-url"     data-url="${escapeHtml(url)}"  aria-label="Copy"></button>
-        <button class="rename-file"  data-key="${escapeHtml(key)}" data-url="${escapeHtml(url)}" data-name="${escapeHtml(name)}" aria-label="Rename"></button>
-        <button class="delete-file"  data-key="${escapeHtml(key)}" data-name="${escapeHtml(name)}" aria-label="Delete"></button>
+        <button class="copy-url"     data-url="${url}"  aria-label="Copy"></button>
+        <button class="rename-file"  data-key="${key}" data-url="${url}" data-name="${name}" aria-label="Rename"></button>
+        <button class="delete-file"  data-key="${key}" data-name="${name}" aria-label="Delete"></button>
       </div>`;
-
-    // 图片 onerror fallback: 若缩略图无法加载则回退到原始 url（若不同）
-    const imgEl = div.querySelector('img');
-    imgEl.addEventListener('error', (e) => {
-      try {
-        if (imgEl.dataset._fallbackTried) return;
-        imgEl.dataset._fallbackTried = '1';
-        if (url && url !== imgSrc) {
-          imgEl.src = url;
-        } else {
-          imgEl.src = '';
-          imgEl.style.background = 'linear-gradient(180deg,#041426,#07243a)';
-        }
-      } catch(_) {}
-    });
 
     // Copy
     div.querySelector(".copy-url").onclick = (e)=> {
-      const u = e.currentTarget.dataset.url || imgSrc || "";
-      copyTextSmart(u).then(ok=>{
-        if(ok) {
+      const u = e.currentTarget.dataset.url;
+      navigator.clipboard.writeText(u)
+        .then(()=>{
           const b=e.currentTarget;
           b.textContent="已复制";
           b.style.fontSize="12px";
           setTimeout(()=>{ b.textContent=""; b.style.fontSize="0"; }, 850);
-        } else {
-          prompt("Copy:", u);
-        }
-      });
+        })
+        .catch(()=>prompt("Copy:",u));
     };
 
     // Rename
@@ -869,10 +743,6 @@ function renderList(list){
   box.appendChild(frag);
 }
 
-// 在 window 上暴露，确保页面其它地方调用到新的 renderList
-try{ window.renderList = renderList; }catch(e){}
-
-/* =================== 过滤与其它 UI 逻辑（保留你原有实现） =================== */
 function applyFilter(){
   const q = ($("#exSearch").value || "").toLowerCase().trim();
   const p = ($("#exPrefix")?.value || "").trim();
@@ -887,7 +757,6 @@ function applyFilter(){
   renderList(exFiltered);
 }
 
-/* =================== loadExisting =================== */
 async function loadExisting(){
   const data = await fetchJsonWithFallback(JSON_FILE_URL);
   const list = Array.isArray(data) ? data : (data.files || data.icons || data.list || []);
@@ -906,7 +775,7 @@ async function loadExisting(){
       if (tail) name = tail;
     }
     const key = it.key || path;
-    return { name, url, path, key, thumb: it.thumb || it.thumbnail || it.preview };
+    return { name, url, path, key };
   });
 
   applyFilter();
@@ -921,33 +790,9 @@ document.addEventListener("DOMContentLoaded", ()=>{
   // const suffixInput = getSuffixInput();
   // if (suffixInput && !suffixInput.value) suffixInput.value = "-mobile"; 
   syncOptionLock();
-
-  // 注：在 DOMContentLoaded 时注入缩略图开关按钮（尽量不改 index.html）
-  try {
-    (function createThumbToggle(){
-      // 默认启用缩略图（可以在控制台改 window.USE_THUMB = false 来关闭）
-      if (window.USE_THUMB === undefined) window.USE_THUMB = true;
-      if (document.getElementById('thumbToggle')) return;
-      const toolbar = document.querySelector('.ex-toolbar') || document.querySelector('.list-head .btns') || document.querySelector('.actions-row') || document.querySelector('.card');
-      if (!toolbar) return;
-      const btn = document.createElement('button');
-      btn.id = 'thumbToggle';
-      btn.className = 'btn';
-      btn.style.marginLeft = '8px';
-      const updateText = ()=> btn.textContent = (window.USE_THUMB ? '禁用缩略图' : '启用缩略图');
-      updateText();
-      btn.addEventListener('click', ()=>{
-        window.USE_THUMB = !window.USE_THUMB;
-        updateText();
-        // 重新加载并渲染
-        loadExisting().catch(()=>{});
-      });
-      toolbar.appendChild(btn);
-    })();
-  } catch(e){}
 });
 
-// —— 允许圆角和半径在“原样”模式下启用 ——
+// ---- 允许圆角和半径在"原样"模式下启用 ----
 function syncOptionLock(){
   const mode = getUploadMode();
   const lockSize = (mode === "original"); // 只有尺寸在原样模式下禁用
@@ -998,7 +843,7 @@ function syncOptionLock(){
   });
 })();
 
-// —— 选择文件：稳健绑定（id / data-action / 旧选择器都支持） —— //
+// ---- 选择文件：稳健绑定（id / data-action / 旧选择器都支持） ---- //
 (function bindBrowseButton(){
   const input = document.getElementById('fileInput')
              || document.querySelector('input[type="file"][id*="file"]');
@@ -1074,11 +919,11 @@ document.getElementById("copyJsonLinkBtn")?.addEventListener("click", async (e) 
       // 复制 API 不可用，显示非阻塞浮层兜底
       showCopyOverlay(urlStr);
     } else {
-      // 成功 → 文本短暂显示“已复制”
+      // 成功 → 文本短暂显示"已复制"
       btn.textContent = "已复制";
       setTimeout(()=>{ btn.textContent = old; }, 850);
     }
   } finally {
     btn.style.pointerEvents = '';
   }
-});// assets/app.js 结束
+});
