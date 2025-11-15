@@ -150,7 +150,6 @@ function showCopyOverlay(text){
   }catch(e){ console.warn('overlay failed', e); }
 }
 
-// [修改] 删除了一个重复的 showToast 定义
 function showToast(t){try{const d=document.createElement('div');d.className='mini-toast';d.textContent=t;document.body.appendChild(d);setTimeout(()=>d.classList.add('on'),10);setTimeout(()=>{d.classList.remove('on');setTimeout(()=>d.remove(),250);},1400);}catch{}}
 
 async function refreshIconsJson() {
@@ -160,7 +159,7 @@ async function refreshIconsJson() {
   }
   // 2) 如果存在 Worker API，可约定一个刷新动作（需要你在 Worker 端支持）
   try {
-    // [修正] API_URL 是您的 Worker URL，不是 UPLOAD_API
+    // [修正] API_URL 是您的 Worker URL
     if (window.API_URL) { 
       const fd = new FormData();
       fd.append("action", "refresh-icons"); // 'upload.js' Worker 支持此动作
@@ -235,6 +234,7 @@ function getUploadMode(){
 }
 
 /* ====== 智能读取原文件（优先直链→代理→最后API） ====== */
+// [备注] 此函数在 'renameFile' 被修改后，已不再被调用
 function deriveKeyFromUrl(u){
   try { const x = new URL(u); return (x.pathname || "").replace(/^\/+/, ""); }
   catch { return (u.split("?")[0] || "").replace(/^https?:\/\/[^/]+\/+/, ""); }
@@ -248,12 +248,6 @@ async function fetchBlobSmart(oldKey, url){
   for (const build of tries){
     try { const r = await fetch(build(url), { cache: "no-store" }); if (r.ok) return await r.blob(); } catch (_){}
   }
-  // [修正] 'upload.js' Worker 不支持 GET key，删除此逻辑
-  // try {
-  //   const apiGet = API_URL + (API_URL.includes("?") ? "&" : "?") + "key=" + encodeURIComponent(oldKey);
-  //   const r = await fetch(apiGet, { method: "GET" });
-  //   if (r.ok) return await r.blob();
-  // } catch (_){}
   throw new Error("无法读取原文件 (CORS 错误)");
 }
 
@@ -406,7 +400,8 @@ async function uploadToAPI(file, key, overwrite=true){
   fd.append("file", new File([file], key, { type: file.type || "application/octet-stream" }));
   fd.append("key", key);
   fd.append("overwrite", String(overwrite));
-  // [修正] API_URL 是 Worker 入口，POST 请求不应在 URL 中携带 key
+  // [备注] API_URL 是 Worker 入口，POST 请求不应在 URL 中携带 key
+  // 'upload.js' Worker 从 form data 中读取 "key"
   const r=await fetch(API_URL, { method:"POST", body:fd });
   const json=await r.json().catch(()=>({}));
   if(!r.ok) throw new Error(json.error || `Upload failed ${r.status}`);
@@ -471,7 +466,16 @@ async function uploadFiles(){
     } else {
       // 无论是正方形/缩放模式，还是带圆角的原样模式：都执行 processImage (强制转为 PNG 内容)
       const processedBlob=await processImage(src,{mode,size,useCorners,radius,mime:outMime,autoTrim:false,trimTolerance:14});
-      jobs.push(uploadToAPI(new File([processedBlob],targetKey,{type:outMMime}),targetKey,overwrite));
+      
+      // -----------------------------------------------------------------
+      // ------------------- ⬇️ 关键错误修正 ⬇️ -------------------
+      // -----------------------------------------------------------------
+      //
+      // 错误： `type:outMMime` (ReferenceError)
+      // 修正： `type:outMime`
+      //
+      jobs.push(uploadToAPI(new File([processedBlob],targetKey,{type:outMime}),targetKey,overwrite));
+      // -----------------------------------------------------------------
       
       // 上传原图副本（如果勾选了 alsoOriginal 且目标文件名不同）
       if (alsoOriginal && targetKey !== rawKey){
@@ -487,6 +491,7 @@ async function uploadFiles(){
     clearPickedUI();
     setTimeout(()=>{ loadExisting().catch(()=>{}); },800);
   }catch(err){
+    $("#result").textContent=`❌ 失败`; // [新增] 失败时提供反馈
     alert("处理或上传失败："+(err?.message||err));
   }
 }
@@ -622,7 +627,7 @@ function showGlassDeleteModal({fileKey, displayName}){
         </div>
         <div class="gdm-actions">
           <button class="gdm-btn gdm-cancel">取消</button>
-          <button class="gdm-btn gdm-ok">删除</button>
+          <button class="gdm-btn grm-ok">删除</button>
         </div>
       </div>
     `;
@@ -630,15 +635,15 @@ function showGlassDeleteModal({fileKey, displayName}){
 
     function close(val){ wrap.remove(); resolve(val); }
     wrap.querySelector(".gdm-cancel").onclick = ()=>close(false);
-    wrap.querySelector(".gdm-ok").onclick     = ()=>close(true);
+    wrap.querySelector(".grm-ok").onclick     = ()=>close(true);
     wrap.querySelector(".glass-del-mask").onclick = ()=>close(false);
     window.addEventListener("keydown", (e)=>{ if(e.key==="Escape") close(false); }, {once:true});
   });
 }
 
-/* ---- 重命名（复制新 key -> 删除旧 key）---- */
+/* ---- 重命名（使用 'upload.js' Worker 的 'rename' 动作）---- */
 async function renameFile(oldKey, url, displayName){
-  // [修正] 'upload.js' Worker POST rename 支持
+  // [备注] 我们现在使用服务器端 'rename' 动作
   if (!oldKey || !oldKey.includes("/")) { const guess=deriveKeyFromUrl(url); if (guess) oldKey=guess; }
   const newKey = await showGlassRenameModal({ oldKey, displayName });
   if (!newKey || newKey === oldKey) return;
@@ -717,7 +722,7 @@ function renderList(list){
 
     let displaySrc;
     if (useThumbnails && key) {
-      // 1. [修改] 构建缩略图 URL (使用 thumb.js)
+      // 1. [优化] 构建缩略图 URL (使用 thumb.js)
       const params = new URLSearchParams({
         file: key,
         w: 120,       // 列表统一 120px 宽
