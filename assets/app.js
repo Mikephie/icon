@@ -159,7 +159,6 @@ async function refreshIconsJson() {
   }
   // 2) 如果存在 Worker API，可约定一个刷新动作（需要你在 Worker 端支持）
   try {
-    // [修正] API_URL 是您的 Worker URL
     if (window.API_URL) { 
       const fd = new FormData();
       fd.append("action", "refresh-icons"); // 'upload.js' Worker 支持此动作
@@ -234,7 +233,6 @@ function getUploadMode(){
 }
 
 /* ====== 智能读取原文件（优先直链→代理→最后API） ====== */
-// [备注] 此函数在 'renameFile' 被修改后，已不再被调用
 function deriveKeyFromUrl(u){
   try { const x = new URL(u); return (x.pathname || "").replace(/^\/+/, ""); }
   catch { return (u.split("?")[0] || "").replace(/^https?:\/\/[^/]+\/+/, ""); }
@@ -400,8 +398,7 @@ async function uploadToAPI(file, key, overwrite=true){
   fd.append("file", new File([file], key, { type: file.type || "application/octet-stream" }));
   fd.append("key", key);
   fd.append("overwrite", String(overwrite));
-  // [备注] API_URL 是 Worker 入口，POST 请求不应在 URL 中携带 key
-  // 'upload.js' Worker 从 form data 中读取 "key"
+  // [修正] 您的 'upload.js' Worker POST 端点不接受 URL 参数
   const r=await fetch(API_URL, { method:"POST", body:fd });
   const json=await r.json().catch(()=>({}));
   if(!r.ok) throw new Error(json.error || `Upload failed ${r.status}`);
@@ -467,15 +464,8 @@ async function uploadFiles(){
       // 无论是正方形/缩放模式，还是带圆角的原样模式：都执行 processImage (强制转为 PNG 内容)
       const processedBlob=await processImage(src,{mode,size,useCorners,radius,mime:outMime,autoTrim:false,trimTolerance:14});
       
-      // -----------------------------------------------------------------
-      // ------------------- ⬇️ 关键错误修正 ⬇️ -------------------
-      // -----------------------------------------------------------------
-      //
-      // 错误： `type:outMMime` (ReferenceError)
-      // 修正： `type:outMime`
-      //
+      // [修正] 修复了 'outMMime' 拼写错误
       jobs.push(uploadToAPI(new File([processedBlob],targetKey,{type:outMime}),targetKey,overwrite));
-      // -----------------------------------------------------------------
       
       // 上传原图副本（如果勾选了 alsoOriginal 且目标文件名不同）
       if (alsoOriginal && targetKey !== rawKey){
@@ -641,26 +631,28 @@ function showGlassDeleteModal({fileKey, displayName}){
   });
 }
 
-/* ---- 重命名（使用 'upload.js' Worker 的 'rename' 动作）---- */
+// -----------------------------------------------------------------
+// ------------------- ⬇️ 核心修正区域 ⬇️ -------------------
+// -----------------------------------------------------------------
+/* ---- 重命名（恢复为与您的 'upload.js' 兼容的 浏览器端 逻辑）---- */
 async function renameFile(oldKey, url, displayName){
-  // [备注] 我们现在使用服务器端 'rename' 动作
+  // [修正] 恢复为在浏览器端处理重命名
   if (!oldKey || !oldKey.includes("/")) { const guess=deriveKeyFromUrl(url); if (guess) oldKey=guess; }
   const newKey = await showGlassRenameModal({ oldKey, displayName });
   if (!newKey || newKey === oldKey) return;
 
+  const overwrite = ($("#optOverwrite")?.checked ?? true) && ($("#overwrite")?.checked ?? true);
   const msg = $("#result"); const prevMsg = msg?.textContent; if (msg) msg.textContent = "✏️ 正在重命名…";
 
   try{
-    // 使用 'upload.js' Worker 的 rename 动作
-    const fd = new FormData();
-    fd.append("action", "rename");
-    fd.append("oldKey", oldKey);
-    fd.append("key", newKey);
+    // 1. 在浏览器中读取旧文件
+    const blob = await fetchBlobSmart(oldKey, url); 
+    // 2. 上传为新文件
+    await uploadToAPI(new File([blob], newKey, { type: blob.type || "application/octet-stream" }), newKey, overwrite); 
+    // 3. 删除旧文件
+    await deleteFile(oldKey, null, displayName); 
     
-    const r = await fetch(API_URL, { method: "POST", body: fd });
-    const json = await r.json().catch(()=>({}));
-    if(!r.ok || !json.ok) throw new Error(json.error || `Rename failed ${r.status}`);
-
+    // 4. 刷新列表
     await loadExisting();
     if (msg) msg.textContent = `✅ 重命名完成：${oldKey} → ${newKey}`;
   }catch(e){
@@ -668,6 +660,10 @@ async function renameFile(oldKey, url, displayName){
     if (msg) msg.textContent = prevMsg || "";
   }
 }
+// -----------------------------------------------------------------
+// ------------------- ⬆️ 核心修正区域 ⬆️ -------------------
+// -----------------------------------------------------------------
+
 
 /* ---- 删除 ---- */
 async function deleteFile(fileKey, btn, displayName){
@@ -705,9 +701,6 @@ window.deleteFile = deleteFile;
 /* ====== 列表渲染（底部透明图标按钮：📋 ✏️ 🗑️） ====== */
 let exAll = [], exFiltered = [];
 
-// -----------------------------------------------------------------
-// ------------------- ⬇️ 核心修改区域 ⬇️ -------------------
-// -----------------------------------------------------------------
 function renderList(list){
   const box = $("#existingList"); if(!box) return; box.innerHTML="";
   const frag=document.createDocumentFragment();
@@ -770,6 +763,12 @@ function renderList(list){
       renameFile(btn.dataset.key, btn.dataset.url, btn.dataset.name);
     };
 
+React.useEffect(() => {
+  if (inView) {
+    controls.start("visible");
+  }
+}, [controls, inView]);
+
     // Delete (不变)
     div.querySelector(".delete-file").onclick = (e)=> {
       const btn=e.currentTarget;
@@ -791,9 +790,6 @@ function renderList(list){
 
   box.appendChild(frag);
 }
-// -----------------------------------------------------------------
-// ------------------- ⬆️ 核心修改区域 ⬆️ -------------------
-// -----------------------------------------------------------------
 
 
 function applyFilter(){
@@ -938,7 +934,7 @@ function syncOptionLock(){
 
   // 文件变更 → 加入列表
   input.addEventListener('change', e => {
-    if (e.target.files && e.target.files.length) addFiles([...e.target.files]);
+    if (e.target.files && e.dataTransfer.files.length) addFiles([...e.target.files]);
     setTimeout(()=>{ try{ e.target.value = ''; }catch(_){ } }, 0);
   });
 })();
