@@ -1,63 +1,76 @@
-// thumb.js
-// 说明：需要在 Worker Bindings 中添加：
-//  - R2 binding 名称: R2_BUCKET (绑定到你的 R2 bucket，例如 "images")
-//  - Images binding 名称: IMAGE    (启用 Cloudflare Images API for Workers)
-// 部署后在 DNS/Routes 上将 icon.mikephie.com/thumb* 指向此 Worker（域名需被 Cloudflare 代理）
-
+// --- 最终完整版 (V2) ---
+//
+// 此版本使用 R2 + Image Transformations (cf: image)
+//
+// 必备条件:
+// 1. 绑定: 只需要 R2_BUCKET。
+// 2. DNS: CNAME 记录必须是“橙色云朵”(Proxied)。
+// 3. 服务: 必须在域名上启用 "Images" -> "Transformations"。
+//
 export default {
+  /**
+   * @param {Request} request
+   * @param {object} env
+   */
   async fetch(request, env) {
     try {
       const url = new URL(request.url);
-      const params = url.searchParams;
 
-      // 必填：file（R2 key），例如 "TV_logo/1024x1024bb.png"
-      const file = params.get('file');
-      if (!file) return new Response('Missing file param', { status: 400 });
+      // 1. 从 URL 获取 file 参数
+      const file = url.searchParams.get('file');
+      if (!file) {
+        // [调试信息] 确认 V2 脚本已部署
+        return new Response('V2 Script Deployed - Error: Missing file param', { 
+          status: 400, 
+          headers: corsHeaders() 
+        });
+      }
 
-      // 可选参数
-      const w = Math.max(1, parseInt(params.get('w') || params.get('width') || '200'));
-      const h = Math.max(1, parseInt(params.get('h') || params.get('height') || String(w)));
-      const fit = params.get('fit') || 'cover'; // cover / contain / scale-down / crop
-      const quality = Math.min(100, Math.max(10, parseInt(params.get('quality') || '80')));
-      const fmt = (params.get('format') || params.get('f') || 'webp').toLowerCase(); // webp / jpeg / png / auto
-
-      // 读取 R2 对象
+      // 2. 从 R2 获取原始对象
       const obj = await env.R2_BUCKET.get(file);
-      if (!obj) return new Response('Not found', { status: 404, headers: corsHeaders() });
+      if (!obj) {
+        return new Response('Not found in R2', { status: 404, headers: corsHeaders() });
+      }
 
-      const original = await obj.arrayBuffer();
+      // 3. 从 URL 获取缩放选项
+      const w = url.searchParams.get('w') || url.searchParams.get('width') || '200';
+      const h = url.searchParams.get('h') || url.searchParams.get('height') || w;
+      const fit = url.searchParams.get('fit') || 'cover';
+      const quality = url.searchParams.get('quality') || '80';
+      const fmt = url.searchParams.get('f') || url.searchParams.get('format') || 'webp';
 
-      // 使用 Cloudflare Images API (Worker内置) 进行缩放
-      // 必须在 Worker Bindings 中启用 IMAGE binding
+      // 4. 构建 Cloudflare Image Resizing 选项
       const resizeOptions = {
         width: w,
         height: h,
-        fit,                // 'cover' 推荐用于图标（等比裁剪填满）
-        quality,            // 质量
-        // format: fmt === 'auto' ? 'webp' : fmt, // auto -> webp as default
-        format: fmt === 'auto' ? 'webp' : fmt
+        fit: fit,
+        quality: quality,
+        format: fmt
       };
 
-      // env.IMAGE.resize 会返回 ArrayBuffer 或 Uint8Array
-      const resized = await env.IMAGE.resize(original, resizeOptions);
-
-      // 根据输出格式决定 Content-Type
-      let contentType = 'image/webp';
-      if (resizeOptions.format === 'jpeg' || resizeOptions.format === 'jpg') contentType = 'image/jpeg';
-      if (resizeOptions.format === 'png') contentType = 'image/png';
-      if (resizeOptions.format === 'webp') contentType = 'image/webp';
-
-      // 返回结果并带上缓存与 CORS
+      // 5. 准备响应头
       const headers = new Headers({
-        'Content-Type': contentType,
-        'Cache-Control': 'public, max-age=86400, stale-while-revalidate=3600', // 缓存 1 天
-        'Access-Control-Allow-Origin': '*', // 如需更严格请改成你的域名
+        'Content-Type': `image/${fmt}`,
+        'Cache-Control': 'public, max-age=86400', 
+        'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS'
       });
+      if(obj.httpEtag) {
+        headers.set('etag', obj.httpEtag);
+      }
+      
+      // 6. [核心] 返回响应
+      // 我们将 R2 的原始文件 (obj.body) 返回，
+      // 并在 cf 选项中加入 image: resizeOptions。
+      // 只有在“橙色云朵”下，Cloudflare 才会执行此缩放。
+      return new Response(obj.body, {
+        headers,
+        cf: {
+          image: resizeOptions
+        }
+      });
 
-      return new Response(resized, { status: 200, headers });
     } catch (err) {
-      // 任何错误也返回 CORS header，方便前端调试
       return new Response('Error: ' + (err && err.message ? err.message : String(err)), {
         status: 500,
         headers: corsHeaders()
@@ -66,6 +79,9 @@ export default {
   }
 };
 
+/**
+ * 辅助函数：返回 CORS 头部
+ */
 function corsHeaders() {
   const h = new Headers();
   h.set('Access-Control-Allow-Origin', '*');
