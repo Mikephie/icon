@@ -7,7 +7,6 @@ window.COPY_FEEDBACK = 'text';
 
 const API_URL       = window.API_URL;
 const JSON_FILE_URL = window.JSON_FILE_URL;
-// 注意：window.THUMB_BASE_URL 变量应在 HTML <script> 块中定义
 
 /* ====== 工具 ====== */
 /* === 中文显示与真实 key 推回 === */
@@ -149,6 +148,7 @@ function showCopyOverlay(text){
     });
   }catch(e){ console.warn('overlay failed', e); }
 }
+function showToast(t){try{const d=document.createElement('div');d.className='mini-toast';d.textContent=t;document.body.appendChild(d);setTimeout(()=>d.classList.add('on'),10);setTimeout(()=>{d.classList.remove('on');setTimeout(()=>d.remove(),250);},1400);}catch{}}
 
 function showToast(t){try{const d=document.createElement('div');d.className='mini-toast';d.textContent=t;document.body.appendChild(d);setTimeout(()=>d.classList.add('on'),10);setTimeout(()=>{d.classList.remove('on');setTimeout(()=>d.remove(),250);},1400);}catch{}}
 
@@ -159,10 +159,10 @@ async function refreshIconsJson() {
   }
   // 2) 如果存在 Worker API，可约定一个刷新动作（需要你在 Worker 端支持）
   try {
-    if (window.API_URL) { 
+    if (window.UPLOAD_API) {
       const fd = new FormData();
-      fd.append("action", "refresh-icons"); // 'upload.js' Worker 支持此动作
-      const r = await fetch(window.API_URL, { method: "POST", body: fd, cache: "no-store" });
+      fd.append("action", "refresh-icons");    // 你可以在 Worker 里用这个动作重建 icons.json（递归列举所有前缀）
+      const r = await fetch(window.UPLOAD_API, { method: "POST", body: fd, cache: "no-store" });
       if (r.ok) return true;
     }
   } catch (e) {}
@@ -246,7 +246,12 @@ async function fetchBlobSmart(oldKey, url){
   for (const build of tries){
     try { const r = await fetch(build(url), { cache: "no-store" }); if (r.ok) return await r.blob(); } catch (_){}
   }
-  throw new Error("无法读取原文件 (CORS 错误)");
+  try {
+    const apiGet = API_URL + (API_URL.includes("?") ? "&" : "?") + "key=" + encodeURIComponent(oldKey);
+    const r = await fetch(apiGet, { method: "GET" });
+    if (r.ok) return await r.blob();
+  } catch (_){}
+  throw new Error("无法读取原文件");
 }
 
 /* ====== 选择：唯一入口 ====== */
@@ -398,8 +403,8 @@ async function uploadToAPI(file, key, overwrite=true){
   fd.append("file", new File([file], key, { type: file.type || "application/octet-stream" }));
   fd.append("key", key);
   fd.append("overwrite", String(overwrite));
-  // [修正] 您的 'upload.js' Worker POST 端点不接受 URL 参数
-  const r=await fetch(API_URL, { method:"POST", body:fd });
+  const url = API_URL + (API_URL.includes("?") ? "&" : "?") + "key=" + encodeURIComponent(key);
+  const r=await fetch(url, { method:"POST", body:fd });
   const json=await r.json().catch(()=>({}));
   if(!r.ok) throw new Error(json.error || `Upload failed ${r.status}`);
   return json;
@@ -463,8 +468,6 @@ async function uploadFiles(){
     } else {
       // 无论是正方形/缩放模式，还是带圆角的原样模式：都执行 processImage (强制转为 PNG 内容)
       const processedBlob=await processImage(src,{mode,size,useCorners,radius,mime:outMime,autoTrim:false,trimTolerance:14});
-      
-      // [修正] 修复了 'outMMime' 拼写错误
       jobs.push(uploadToAPI(new File([processedBlob],targetKey,{type:outMime}),targetKey,overwrite));
       
       // 上传原图副本（如果勾选了 alsoOriginal 且目标文件名不同）
@@ -481,7 +484,6 @@ async function uploadFiles(){
     clearPickedUI();
     setTimeout(()=>{ loadExisting().catch(()=>{}); },800);
   }catch(err){
-    $("#result").textContent=`❌ 失败`; // [新增] 失败时提供反馈
     alert("处理或上传失败："+(err?.message||err));
   }
 }
@@ -617,7 +619,7 @@ function showGlassDeleteModal({fileKey, displayName}){
         </div>
         <div class="gdm-actions">
           <button class="gdm-btn gdm-cancel">取消</button>
-          <button class="gdm-btn grm-ok">删除</button>
+          <button class="gdm-btn gdm-ok">删除</button>
         </div>
       </div>
     `;
@@ -625,34 +627,25 @@ function showGlassDeleteModal({fileKey, displayName}){
 
     function close(val){ wrap.remove(); resolve(val); }
     wrap.querySelector(".gdm-cancel").onclick = ()=>close(false);
-    wrap.querySelector(".grm-ok").onclick     = ()=>close(true);
+    wrap.querySelector(".gdm-ok").onclick     = ()=>close(true);
     wrap.querySelector(".glass-del-mask").onclick = ()=>close(false);
     window.addEventListener("keydown", (e)=>{ if(e.key==="Escape") close(false); }, {once:true});
   });
 }
 
-// -----------------------------------------------------------------
-// ------------------- ⬇️ 核心修正区域 ⬇️ -------------------
-// -----------------------------------------------------------------
-/* ---- 重命名（恢复为与您的 'upload.js' 兼容的 浏览器端 逻辑）---- */
+/* ---- 重命名（复制新 key -> 删除旧 key）---- */
 async function renameFile(oldKey, url, displayName){
-  // [修正] 恢复为在浏览器端处理重命名
   if (!oldKey || !oldKey.includes("/")) { const guess=deriveKeyFromUrl(url); if (guess) oldKey=guess; }
   const newKey = await showGlassRenameModal({ oldKey, displayName });
-  if (!newKey || newKey === oldKey) return;
+  if (!newKey) return;
 
   const overwrite = ($("#optOverwrite")?.checked ?? true) && ($("#overwrite")?.checked ?? true);
   const msg = $("#result"); const prevMsg = msg?.textContent; if (msg) msg.textContent = "✏️ 正在重命名…";
 
   try{
-    // 1. 在浏览器中读取旧文件
-    const blob = await fetchBlobSmart(oldKey, url); 
-    // 2. 上传为新文件
-    await uploadToAPI(new File([blob], newKey, { type: blob.type || "application/octet-stream" }), newKey, overwrite); 
-    // 3. 删除旧文件
-    await deleteFile(oldKey, null, displayName); 
-    
-    // 4. 刷新列表
+    const blob = await fetchBlobSmart(oldKey, url);
+    await uploadToAPI(new File([blob], newKey, { type: blob.type || "application/octet-stream" }), newKey, overwrite);
+    await deleteFile(oldKey, null, displayName);
     await loadExisting();
     if (msg) msg.textContent = `✅ 重命名完成：${oldKey} → ${newKey}`;
   }catch(e){
@@ -660,10 +653,6 @@ async function renameFile(oldKey, url, displayName){
     if (msg) msg.textContent = prevMsg || "";
   }
 }
-// -----------------------------------------------------------------
-// ------------------- ⬆️ 核心修正区域 ⬆️ -------------------
-// -----------------------------------------------------------------
-
 
 /* ---- 删除 ---- */
 async function deleteFile(fileKey, btn, displayName){
@@ -700,42 +689,21 @@ window.deleteFile = deleteFile;
 
 /* ====== 列表渲染（底部透明图标按钮：📋 ✏️ 🗑️） ====== */
 let exAll = [], exFiltered = [];
-
 function renderList(list){
   const box = $("#existingList"); if(!box) return; box.innerHTML="";
   const frag=document.createDocumentFragment();
 
-  // 检查 HTML 中是否定义了 THUMB_BASE_URL
-  const useThumbnails = typeof window.THUMB_BASE_URL === 'string' && window.THUMB_BASE_URL;
-
   list.forEach(it=>{
     const name = it.name || it.file || it.key || "";
-    const url  = it.url  || it.href || ""; // <-- 这是原图 URL
-    const key  = keyFromItem({ name, key: it.key, path: it.path, url }); // <-- 这是 R2 Key
-
-    let displaySrc;
-    if (useThumbnails && key) {
-      // 1. [优化] 构建缩略图 URL (使用 thumb.js)
-      const params = new URLSearchParams({
-        file: key,
-        w: 120,       // 列表统一 120px 宽
-        h: 120,
-        fit: 'contain', // 保持比例
-        f: 'webp'       // 统一用 webp
-      });
-      displaySrc = `${window.THUMB_BASE_URL}?${params.toString()}`;
-    } else {
-      // 2. [兜底] 如果没有配置 THUMB_BASE_URL 或没有 key，用原图
-      displaySrc = url;
-    }
+    const url  = it.url  || it.href || "";
+    const key  = keyFromItem({ name, key: it.key, path: it.path, url });
 
     const div=document.createElement("div");
     div.className="ex-item";
 
-    // 3. [修改] <img> 的 src 使用 displaySrc
     div.innerHTML=`
       <div class="ex-image-area">
-        <img loading="lazy" alt="${name}" src="${displaySrc}">
+        <img loading="lazy" alt="${name}" src="${url}">
       </div>
       <div class="ex-name" title="${it.path || name}">${name}</div>
       <div class="ex-actions circle-actions">
@@ -744,7 +712,7 @@ function renderList(list){
         <button class="delete-file"  data-key="${key}" data-name="${name}" aria-label="Delete"></button>
       </div>`;
 
-    // Copy (不变: 复制按钮仍然复制 *原图* URL)
+    // Copy
     div.querySelector(".copy-url").onclick = (e)=> {
       const u = e.currentTarget.dataset.url;
       navigator.clipboard.writeText(u)
@@ -757,40 +725,23 @@ function renderList(list){
         .catch(()=>prompt("Copy:",u));
     };
 
-    // Rename (不变)
+    // Rename
     div.querySelector(".rename-file").onclick = (e)=> {
       const btn=e.currentTarget;
       renameFile(btn.dataset.key, btn.dataset.url, btn.dataset.name);
     };
 
-React.useEffect(() => {
-  if (inView) {
-    controls.start("visible");
-  }
-}, [controls, inView]);
-
-    // Delete (不变)
+    // Delete
     div.querySelector(".delete-file").onclick = (e)=> {
       const btn=e.currentTarget;
       deleteFile(btn.dataset.key, btn, btn.dataset.name);
     };
-
-    // 4. [新增] 点击图片区域，在新标签页打开 *原图*
-    const imgArea = div.querySelector(".ex-image-area");
-    if (imgArea) {
-      imgArea.style.cursor = 'pointer';
-      imgArea.title = '点击查看原图';
-      imgArea.onclick = () => {
-        window.open(url, '_blank'); // `url` 是原始大图 URL
-      };
-    }
 
     frag.appendChild(div);
   });
 
   box.appendChild(frag);
 }
-
 
 function applyFilter(){
   const q = ($("#exSearch").value || "").toLowerCase().trim();
@@ -823,8 +774,7 @@ async function loadExisting(){
       const tail = decodeURIComponent((url.split("?")[0] || "").split("/").pop() || "");
       if (tail) name = tail;
     }
-    // [修正] 确保 key 始终被正确填充
-    const key = it.key || path || keyFromItem(it); 
+    const key = it.key || path;
     return { name, url, path, key };
   });
 
@@ -922,7 +872,7 @@ function syncOptionLock(){
     }, { passive: true });
   });
 
-  // Dnd
+  // 拖拽兜底
   ['dragover','drop'].forEach(ev=>{
     document.addEventListener(ev, e => {
       e.preventDefault();
@@ -934,7 +884,7 @@ function syncOptionLock(){
 
   // 文件变更 → 加入列表
   input.addEventListener('change', e => {
-    if (e.target.files && e.dataTransfer.files.length) addFiles([...e.target.files]);
+    if (e.target.files && e.target.files.length) addFiles([...e.target.files]);
     setTimeout(()=>{ try{ e.target.value = ''; }catch(_){ } }, 0);
   });
 })();
@@ -958,10 +908,8 @@ document.getElementById("copyJsonLinkBtn")?.addEventListener("click", async (e) 
   try {
     // 禁重复点击（避免多次触发），但不改变外观
     btn.style.pointerEvents = 'none';
-    
-    // [修正] 使用 'upload.js' Worker 的 'refresh-icons' 动作
+    // 先刷新（Worker 端需支持 action=refresh-icons）
     try { await refreshIconsJson(); } catch {}
-
     // 再复制（带时间戳，确保无缓存）
     const u = new URL(window.JSON_FILE_URL, location.href);
     u.searchParams.set("_", Date.now().toString());
